@@ -2,7 +2,7 @@
     "name": "exoproject/houston",
     "description": "Call Houston when you have a problem. Houston is a simple php error handler, with configurable profiles.",
     "type": "library",
-    "keywords" :["php", "utils"],
+    "keywords" :["php", "utils","error-handling"],
     "homepage":"https://github.com/I-is-as-I-does/Houston",
     "license": "MIT",
     "readme":"README.md",
@@ -11,7 +11,10 @@
             "name": "I-is-as-I-does",
             "email": "66915011+I-is-as-I-does@users.noreply.github.com"
         }
-    ],
+    ],    
+    "config": {
+        "vendor-dir": "composer"
+    },
     "minimum-stability": "stable",
     "autoload": {
         "psr-4": {

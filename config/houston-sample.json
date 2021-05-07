@@ -5,7 +5,7 @@
     },
      "profiles" :{
         "1": {
-        "logPath": "./../test/logs/anomalies-lvl1.json",
+        "logPath": "./test/logs/anomalies-lvl1.json",
         "historyLimit": 366,
         "sendMail": {
             "isActive":true,
@@ -14,12 +14,12 @@
         },
         "exitAfterLog": {
             "isActive":true,
-            "pagePath": "./../views/exitpage-sample.php",
+            "pagePath": "./views/exitpage-sample.php",
             "fallbackText": "This page is in maintenance mode."
         }
     },
     "2": {
-        "logPath": "./../test/logs/anomalies-lvl2.json",
+        "logPath": "./test/logs/anomalies-lvl2.json",
         "historyLimit": 183,
         "sendMail": {
             "isActive":false,
@@ -28,12 +28,12 @@
         },
         "exitAfterLog": {
             "isActive":true,
-            "pagePath": "./../views/exitpage-sample.php",
+            "pagePath": "./views/exitpage-sample.php",
             "fallbackText": "This page is in maintenance mode."
         }
     },
     "3": {
-        "logPath": "./../test/logs/anomalies-lvl2.json",
+        "logPath": "./test/logs/anomalies-lvl2.json",
         "historyLimit": 92,
         "sendMail": {
             "isActive":false,
@@ -42,7 +42,7 @@
         },
         "exitAfterLog": {
             "isActive":false,
-            "pagePath": "./../views/exitpage-sample.php",
+            "pagePath": "./views/exitpage-sample.php",
             "fallbackText": "This page is in maintenance mode."
         }
     }

@@ -341,7 +341,6 @@ class Houston implements Houston_i
                         break;
                     }
                 }
-                //@todo: test
                 $log = $decodlog;
             }
         }

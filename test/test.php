@@ -1,6 +1,6 @@
 <?php
 
-require_once(dirname(__DIR__).'\\vendor\\autoload.php');
+require_once(dirname(__DIR__).'\\composer\\autoload.php');
 
 use ExoProject\Houston\Houston;
 
