@@ -5,19 +5,10 @@ namespace ExoProject\Houston;
 class Houston implements Houston_i
 {
     protected $selfLog = [];
-    private $emergencyVal = [
-        'configDoc'=>'config\\houston.json',
-        'historyLimit'=>366,
-        'dfltLvl'=>2,
-        'subjectText'=>'Error report',
-        'fallbackText'=>'Apologies; this page is in maintenance mode.',
-        'logDir'=>'emergencyLogs'
-    ];
+
     private $dateFormat = 'Y-m-d H:i:s \G\M\TO';
     private $settings;
     private $profiles;
-    private $emergPathInUse = false;
-
 
     public function __construct($datatolog = null, $origin = null, $lvl = null, $configPath = null)
     {/* @doc:
@@ -81,7 +72,7 @@ class Houston implements Houston_i
 
     private function getEmergConfigPath()
     {
-        return dirname(__DIR__).'\\'.$this->emergencyVal['configDoc'];
+        return dirname(__DIR__).'\\'.$this->emergencyVal['configFile'];
     }
 
     private function getEmergLogPath()
@@ -201,8 +192,8 @@ class Houston implements Houston_i
                     if ($validSenderEmail) {
                         $this->selfLog[] = "profile '$k': recipient email is either not set or invalid";
                     }
-                } elseif (empty($profile['sendMail']['subjectText'])) {
-                    $profiles[$k]['sendMail']['subjectText'] = $_SERVER['HTTP_HOST'].': '.$this->emergencyVal['subjectText'];
+                } elseif (empty($profile['sendMail']['emailSubject'])) {
+                    $profiles[$k]['sendMail']['emailSubject'] = $_SERVER['HTTP_HOST'].': '.$this->emergencyVal['subjectText'];
                     $this->selfLog[] = "profile '$k': email subject is not set";
                 }
             }

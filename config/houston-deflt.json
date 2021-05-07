@@ -1,0 +1,29 @@
+{
+  "settings": {
+    "logDir": "logs/",
+    "lang": "en",
+    "exitPage": "views/exitpage-deflt.php",
+    "defaults": {
+      "historyLimit": 336,
+      "sendMail": true,
+      "exitAfterLog": true
+    }
+  },
+  "profiles": {
+    "1": {
+      "historyLimit": 366,
+      "sendMail": true,
+      "exitAfterLog": true
+    },
+    "2": {
+      "historyLimit": 183,
+      "sendMail": true,
+      "exitAfterLog": false
+    },
+    "3": {
+      "historyLimit": 92,
+      "sendMail": false,
+      "exitAfterLog": false
+    }
+  }
+}
