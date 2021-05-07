@@ -1,11 +1,11 @@
 {
     "settings":{
         "senderEmail": "noreply@website-xyz.com",
-        "dlftLvl":"2"
+        "dfltLvl":"2"
     },
-    "profiles" :{
+     "profiles" :{
         "1": {
-        "logPath": "./../logs/anomalies-lvl1.json",
+        "logPath": "./../test/logs/anomalies-lvl1.json",
         "historyLimit": 366,
         "sendMail": {
             "isActive":true,
@@ -13,27 +13,27 @@
             "subjectText": "WebsiteXYZ: anomaly lvl1 report"
         },
         "exitAfterLog": {
-            "isActive":false,
-            "pagePath": "./../views/exitpage-sample.html",
+            "isActive":true,
+            "pagePath": "./../views/exitpage-sample.php",
             "fallbackText": "This page is in maintenance mode."
         }
     },
     "2": {
-        "logPath": "./../logs/anomalies-lvl2.json",
+        "logPath": "./../test/logs/anomalies-lvl2.json",
         "historyLimit": 183,
         "sendMail": {
-            "isActive":true,
+            "isActive":false,
             "recipientEmail": "admin@website-xyz.com",
             "subjectText": "WebsiteXYZ: anomaly lvl2 report"
         },
         "exitAfterLog": {
             "isActive":true,
-            "pagePath": "./../views/exitpage-sample.html",
+            "pagePath": "./../views/exitpage-sample.php",
             "fallbackText": "This page is in maintenance mode."
         }
     },
     "3": {
-        "logPath": "./../logs/anomalies-lvl2.json",
+        "logPath": "./../test/logs/anomalies-lvl2.json",
         "historyLimit": 92,
         "sendMail": {
             "isActive":false,
@@ -42,9 +42,10 @@
         },
         "exitAfterLog": {
             "isActive":false,
-            "pagePath": "./../views/exitpage-sample.html",
+            "pagePath": "./../views/exitpage-sample.php",
             "fallbackText": "This page is in maintenance mode."
         }
     }
 }
+   
 }

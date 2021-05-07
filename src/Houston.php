@@ -11,7 +11,7 @@ class Houston implements Houston_i
         'dfltLvl'=>2,
         'subjectText'=>'Error report',
         'fallbackText'=>'Apologies; this page is in maintenance mode.',
-        'logDir'=>'emergencyLog'
+        'logDir'=>'emergencyLogs'
     ];
     private $dateFormat = 'Y-m-d H:i:s \G\M\TO';
     private $settings;
@@ -20,16 +20,16 @@ class Houston implements Houston_i
 
 
     public function __construct($datatolog = null, $origin = null, $lvl = null, $configPath = null)
-    {/* @doc: 
+    {/* @doc:
         - Calling Houston without arguments will set up default config.
 
         - Passing a custom $configPath without logging something right away is also valid.
-        new Houston(null,null,null,'custom/path/to/config.json'); 
+        new Houston(null,null,null,'custom/path/to/config.json');
 
         - $datatolog can also nest origin and lvl:
         $datatolog = ['data'=>"error msg", 'origin'=>__FILE__, 'lvl'=>2];
-    
-        - Log record will obviously be timestamped, so no need to add one. 
+
+        - Log record will obviously be timestamped, so no need to add one.
      */
 
         $this->validateAndSetConfig($configPath);
@@ -39,25 +39,28 @@ class Houston implements Houston_i
         }
     }
 
-    protected function sendEmail($subject, $content, $sender, $recipient){
-        /* @doc: 
+    protected function sendEmail($subject, $content, $sender, $recipient)
+    {
+        /* @doc:
            use your own email handler here; return true if success; false if error;
-           or 
+           or
            use ExoProject\Jacks\Trinkets;
            return Trinkets::sendEmail($subject, $content, $sender, $recipient);
         */
+        $this->selfLog[] = 'email handler not set';
         return false;
     }
 
-    protected function randomLogName(){
+    protected function randomLogName()
+    {
         $randomChars = sha1(rand());
-         /* @doc: or
-         use ExoProject\Jacks\Token;
-         $randomChars = Token::sha40char();
-         */
+        /* @doc: or
+        use ExoProject\Jacks\Token;
+        $randomChars = Token::sha40char();
+        */
 
         return $randomChars.'.json';
-    }  
+    }
     
     protected function isOutOfDate($origin, $target, $limit)
     {
@@ -78,37 +81,43 @@ class Houston implements Houston_i
 
     private function getEmergConfigPath()
     {
-        return dirname(__DIR__).'\\'.$this->$emergencyVal['configDoc'];
+        return dirname(__DIR__).'\\'.$this->emergencyVal['configDoc'];
     }
 
     private function getEmergLogPath()
     {
-        $emergDir = dirname(__DIR__).'\\'.$this->$emergencyVal['logDir'];
-        if(!is_dir($emergDir)){
+        $emergDir = dirname(__DIR__).'\\'.$this->emergencyVal['logDir'];
+        if (!is_dir($emergDir)) {
             mkdir($emergDir);
+        } else {
+            $files=glob($emergDir.'\\*.json');
+            if (!empty($files)) {
+                return $files[0];
+            }
         }
-        return $emergDir.'\\'. .$this->randomLogName();
+        return $emergDir.'\\'.$this->randomLogName();
     }
 
-    private function readConfigFile($configPath){
+    private function readConfigFile($configPath)
+    {
         $read = json_decode(file_get_contents($configPath), true);
-        if(!empty($read) && is_array($read)){
+        if (!empty($read) && is_array($read)) {
             return $read;
         }
         return false;
     }
 
-    private function getConfigContent($configPath){
+    private function getConfigContent($configPath)
+    {
         $this->selfLog = [];
 
         $config = [];
-        if(!empty($configPath)){
+        if (!empty($configPath)) {
             if (!file_exists($configPath)) {
                 $this->selfLog[] = 'given config path is invalid';
-            }
-            else {
+            } else {
                 $read = $this->readConfigFile($configPath);
-                if($read !== false){
+                if ($read !== false) {
                     $config = $read;
                 } else {
                     $this->selfLog[] = 'either empty or invalid config json';
@@ -116,28 +125,28 @@ class Houston implements Houston_i
             }
         }
 
-        if(empty($config)){
-
-         $configPath = $this->getDfltConfigPath();
+        if (empty($config)) {
+            $configPath = $this->getEmergConfigPath();
             if (!file_exists($configPath)) {
                 $this->selfLog[] = 'default config path is invalid';
             } else {
                 $read = $this->readConfigFile($configPath);
-                if($read !== false){
+                if ($read !== false) {
                     $config = $read;
                 } else {
                     $this->selfLog[] = 'either empty or invalid default config json';
                 }
             }
-        }       
-            return $config;
+        }
+        return $config;
     }
 
-    public function validateAndSetConfig($configPath = null) {
+    public function validateAndSetConfig($configPath = null)
+    {
         $config = $this->getConfigContent($configPath);
 
-        foreach(['settings','profiles'] as $branch){
-            if(!isset($config[$branch])){
+        foreach (['settings','profiles'] as $branch) {
+            if (!isset($config[$branch])) {
                 $config[$branch] = [];
                 $this->selfLog[] = "'$branch' are not set";
             }
@@ -147,71 +156,74 @@ class Houston implements Houston_i
         $profiles = $config['profiles'];
 
         $validSenderEmail = false;
-        if(!empty($settings["senderEmail"])){
-            if(filter_var($settings["senderEmail"], FILTER_VALIDATE_EMAIL)){
+        if (!empty($settings["senderEmail"])) {
+            if (filter_var($settings["senderEmail"], FILTER_VALIDATE_EMAIL)) {
                 $validSenderEmail = true;
             } else {
                 $this->selfLog[] = $settings["senderEmail"].' is not a valid email';
             }
-        } 
+        }
        
-        if (!isset($settings["dlftLvl"])) {
-            $settings["dlftLvl"] = $this->emergencyVal["dlftLvl"];
+        if (!isset($settings["dfltLvl"])) {
+            $settings["dfltLvl"] = $this->emergencyVal["dfltLvl"];
             $this->selfLog[] = 'default lvl is not set';
         }
 
-        $dfltLvl = $settings["dlftLvl"];
-        if(!isset($profiles[$dfltLvl])){
+        $dfltLvl = $settings["dfltLvl"];
+        if (!isset($profiles[$dfltLvl])) {
             $profiles[$dfltLvl] = [];
             $this->selfLog[] = 'profile of default lvl is not set';
         }
 
         $this->emergPathInUse = false;
-        if(empty($profiles[$dfltLvl]['logPath']) ||
-           !is_writable(dirname($profiles[$dfltLvl]['logPath']))){
+        if (empty($profiles[$dfltLvl]['logPath']) ||
+           !is_writable(dirname($profiles[$dfltLvl]['logPath']))) {
             $profiles[$dfltLvl]['logPath'] = $this->getEmergLogPath();
             $this->emergPathInUse = true;
             $this->selfLog[] = 'default lvl log path is either not set or invalid';
         }
 
-         foreach($profiles as $k => $profile) {
-            if($k != $dfltLvl && (empty($profile['logPath'] || !is_writable(dirname($profile['logPath']))))){
+        foreach ($profiles as $k => $profile) {
+            if ($k != $dfltLvl && (empty($profile['logPath'] || !is_writable(dirname($profile['logPath']))))) {
                 $profiles[$k]['logPath'] = $profiles[$dfltLvl]['logPath'];
                 $this->selfLog[] = "profile '$k': log path is either not set or invalid";
-                }
-            if(empty($profile['historyLimit']) || $profile['historyLimit'] < 1 || is_float($profile['historyLimit']){
+            }
+            if (empty($profile['historyLimit']) || $profile['historyLimit'] < 1 || is_float($profile['historyLimit'])) {
                 $profiles[$k]['historyLimit'] = $this->emergencyVal['historyLimit'];
                 $this->selfLog[] = "profile '$k': history limit is either not set or invalid";
             }
 
-            if (isset($profile['sendMail']) && !empty($profile['sendMail']["isActive"])) {
-                if(!$validSenderEmail || empty($profile['sendMail']['recipientEmail']) || !filter_var($profile['sendMail']['recipientEmail'], FILTER_VALIDATE_EMAIL)){
+            if (isset($profile['sendMail'])) {
+                if (empty($profile['sendMail']["isActive"])) {
                     $profiles[$k]['sendMail'] = false;
-                    if($validSenderEmail){
+                } elseif (!$validSenderEmail || empty($profile['sendMail']['recipientEmail']) || !filter_var($profile['sendMail']['recipientEmail'], FILTER_VALIDATE_EMAIL)) {
+                    $profiles[$k]['sendMail'] = false;
+                    if ($validSenderEmail) {
                         $this->selfLog[] = "profile '$k': recipient email is either not set or invalid";
                     }
-                } elseif(empty($profile['sendMail']['subjectText']){
+                } elseif (empty($profile['sendMail']['subjectText'])) {
                     $profiles[$k]['sendMail']['subjectText'] = $_SERVER['HTTP_HOST'].': '.$this->emergencyVal['subjectText'];
                     $this->selfLog[] = "profile '$k': email subject is not set";
                 }
-            }        
-            if(!empty($profile['exitAfterLog'])){
-                if(empty($profile['exitAfterLog']["isActive"])){
-                    $profile['exitAfterLog'] = false;
-                } else {
-                if(empty($profile['exitAfterLog']["fallbackText"])){
-                    $profiles[$k]['exitAfterLog']["fallbackText"] = $this->emergencyVal['fallbackText'];
-                    $this->selfLog[] = "profile '$k': fallback text is not set";
-                }
-                if(!empty($profile['exitAfterLog']["pagePath"]) && !file_exists($profile['exitAfterLog']["pagePath"])){
-                    $profiles[$k]['exitAfterLog']["pagePath"] = false;
-                    $this->selfLog[] = "profile '$k': exit page path is invalid";
-                }
-            }           
             }
-            $this->profiles = $profiles;
-            $this->settings = $settings;
-            $this->handleSelfLog();
+            if (!empty($profile['exitAfterLog'])) {
+                if (empty($profile['exitAfterLog']["isActive"])) {
+                    $profiles[$k]['exitAfterLog'] = false;
+                } else {
+                    if (empty($profile['exitAfterLog']["fallbackText"])) {
+                        $profiles[$k]['exitAfterLog']["fallbackText"] = $this->emergencyVal['fallbackText'];
+                        $this->selfLog[] = "profile '$k': fallback text is not set";
+                    }
+                    if (!empty($profile['exitAfterLog']["pagePath"]) && !file_exists($profile['exitAfterLog']["pagePath"])) {
+                        $profiles[$k]['exitAfterLog']["pagePath"] = false;
+                        $this->selfLog[] = "profile '$k': exit page path is invalid";
+                    }
+                }
+            }
+        }
+        $this->profiles = $profiles;
+        $this->settings = $settings;
+        $this->handleSelfLog();
     }
 
     public function handle($datatolog, $origin = null, $lvl = null)
@@ -224,13 +236,13 @@ class Houston implements Houston_i
                 $lvl = $datatolog['lvl'];
                 unset($datatolog['lvl']);
             } else {
-                $lvl = $this->settings["dlftLvl"];
+                $lvl = $this->settings["dfltLvl"];
             }
         }
 
         if (empty($this->profiles[$lvl])) {
             $this->selfLog[] = "specified level '".$lvl."' does not exist";
-            $lvl = $this->settings["dlftLvl"];
+            $lvl = $this->settings["dfltLvl"];
         }
 
         $lvldata = $this->profiles[$lvl];
@@ -258,57 +270,58 @@ class Houston implements Houston_i
                 $this->profiles[$lvl]["logPath"] = false;
             }
         }
-
+  
         if (!empty($lvldata["sendMail"])) {
-            
-            $sendemail = $this->sendEmail($lvldata["subjectText"], json_encode($content, JSON_PRETTY_PRINT), $this->settings["senderEmail"], $lvldata["sendMail"]["recipientEmail"]);
+            $sendemail = $this->sendEmail($lvldata["sendMail"]["subjectText"], json_encode($content, JSON_PRETTY_PRINT), $this->settings["senderEmail"], $lvldata["sendMail"]["recipientEmail"]);
             if ($sendemail === false) {
                 $this->profiles[$lvl]["sendMail"] = false;
-                $this->selfLog = "sending email notification failed";
+                $this->selfLog[] = "sending email notification failed";
             }
         }
-            $this->handleSelfLog();
+        $this->handleSelfLog();
 
-        if(!empty($lvldata["exitAfterLog"])){
+        if (!empty($lvldata["exitAfterLog"])) {
             $exitContent = $this->getExitContent($lvldata["exitAfterLog"]);
             $this->outputExitContent($exitContent);
         }
-
     }
 
-    private function cleanSelfLog(){
+    private function cleanSelfLog()
+    {
         $this->selfLog = [];
         return true;
     }
    
-    protected function handleSelfLog(){
-        if (empty($this->selfLog)){
+    protected function handleSelfLog()
+    {
+        if (empty($this->selfLog)) {
             return true;
         }
         if (!isset($this->profiles) || !isset($this->settings)) {
-            return $this->cleanSelfLog();
-        }
-   
-        if(!empty($this->profiles['1']) && !empty($this->profiles[1]["logPath"])){
-                $record = $this->recordLog($this->profiles[1]["logPath"], $this->selfLog, $this->profiles[1]["historyLimit"]);
-                if($record !== false){
-                    return $this->cleanSelfLog();
-                }
-            } 
-            if($this->settings["dlftLvl"] !== 1){
-                $record = $this->recordLog($this->profiles[$this->settings["dlftLvl"]]["logPath"], $this->selfLog, $this->profiles[$this->settings["dlftLvl"]]["historyLimit"]);
-                if($record !== false){
-                    return $this->cleanSelfLog();
-                }
-            }
-            if ($this->emergPathInUse !== true) {
-                $record = $this->recordLog($this->getEmergLogPath(), $this->selfLog, $this->emergencyVal['historyLimit']);
-                if($record !== false){
-                    return $this->cleanSelfLog();
-                }
-            }
-            $this->emergPathInUse = true;
             return false;
+        }
+        $selfcontent = ['data'=>$this->selfLog, 'origin'=>['Houston SelfLog',__FILE__]];
+   
+        if (!empty($this->profiles['1']) && !empty($this->profiles[1]["logPath"])) {
+            $record = $this->recordLog($this->profiles[1]["logPath"], $selfcontent, $this->profiles[1]["historyLimit"]);
+            if (!empty($record)) {
+                return $this->cleanSelfLog();
+            }
+        }
+        if ($this->settings["dfltLvl"] !== 1) {
+            $record = $this->recordLog($this->profiles[$this->settings["dfltLvl"]]["logPath"], $selfcontent, $this->profiles[$this->settings["dfltLvl"]]["historyLimit"]);
+            if (!empty($record)) {
+                return $this->cleanSelfLog();
+            }
+        }
+        if ($this->emergPathInUse !== true) {
+            $record = $this->recordLog($this->getEmergLogPath(), $selfcontent, $this->emergencyVal['historyLimit']);
+            if (!empty($record)) {
+                return $this->cleanSelfLog();
+            }
+        }
+        $this->emergPathInUse = true;
+        return false;
     }
     
     protected function recordLog($logpath, $content, $historyLimit)
@@ -316,42 +329,42 @@ class Houston implements Houston_i
         if (!is_writable(dirname($logpath))) {
             return false;
         }
-        $timestamp = date($this->$dateFormat);
+        $content['timestamp'] = date($this->dateFormat);
         $log = [];
         if (file_exists($logpath)) {
             $decodlog = json_decode(file_get_contents($logpath), true);
             if (!empty($decodlog)) {
-                //@todo: test
-                $timestamps = array_keys($decodlog);
-                $c = 0;
-                $historyLimit;
-                while ($this->isOutOfDate(($timestamps[$c], $timestamp, $historyLimit)) {
-                    unset($decodlog[$timestamps[$c]]);
-                    $c++;
+                foreach ($decodlog as $k => $logentry) {
+                    if ($this->isOutOfDate($logentry['timestamp'], $content['timestamp'], $historyLimit)) {
+                        unset($decodlog[$k]);
+                    } else {
+                        break;
+                    }
                 }
+                //@todo: test
                 $log = $decodlog;
             }
         }
-        $log[$timestamp] = $content;
+        
+        $log[] = $content;
         return file_put_contents($logpath, json_encode($log, JSON_PRETTY_PRINT), LOCK_EX);
     }
 
     private function getExitContent($exitData)
     {
-        if (!empty($exitData["exitPagePath"])) {
-                ob_start();
-                include($exitData["exitPagePath"]);
-                $exitContent = ob_get_clean();
-                if(!empty($exitContent)){
-                    return $exitContent;
-                }
+        if (!empty($exitData["pagePath"])) {
+            ob_start();
+            include($exitData["pagePath"]);
+            $exitContent = ob_get_clean();
+            if (!empty($exitContent)) {
+                return $exitContent;
             }
-        return $exitData["exitFallback"];
+        }
+        return $exitData["fallbackText"];
     }
 
     private function outputExitContent($exitContent)
     {
         exit($exitContent);
     }
-
 }
