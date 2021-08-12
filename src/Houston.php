@@ -1,360 +1,257 @@
 <?php
-/* This file is part of Houston | ExoProject | (c) 2021 I-is-as-I-does | MIT License */
-namespace ExoProject\Houston;
+/* This file is part of Houston | SSITU | (c) 2021 I-is-as-I-does */
+namespace SSITU\Houston;
 
-class Houston implements Houston_i
+use \SSITU\Blueprints\Shut;
+use \SSITU\Jack;
+
+class Houston implements Shut\EnderReqInterface
+
 {
-    protected $selfLog = [];
+    use Shut\EnderReqTrait;
 
-    private $dateFormat = 'Y-m-d H:i:s \G\M\TO';
-    private $settings;
-    private $profiles;
+    const LVLS = [100 => "debug", 200 => "info", 250 => "notice", 300 => "warning", 400 => "error", 500 => "critical", 550 => "alert", 600 => "emergency"];
 
-    public function __construct($datatolog = null, $origin = null, $lvl = null, $configPath = null)
-    {/* @doc:
-        - Calling Houston without arguments will set up default config.
+    private $logsDir;
+    private $bufferLimit;
 
-        - Passing a custom $configPath without logging something right away is also valid.
-        new Houston(null,null,null,'custom/path/to/config.json');
+    private $channels = [];
+    private $chan;
 
-        - $datatolog can also nest origin and lvl:
-        $datatolog = ['data'=>"error msg", 'origin'=>__FILE__, 'lvl'=>2];
+    private $selfLogFail = false;
 
-        - Log record will obviously be timestamped, so no need to add one.
-     */
+    public function __construct($logsDir, $bufferLimit = 10)
+    {
+        $this->logsDir = $logsDir;
+        $this->bufferLimit = $bufferLimit;
 
-        $this->validateAndSetConfig($configPath);
+        $this->chan = 'ssitu-houston';
+        $this->setEnderProperties('processBuffer');
 
-        if ($datatolog !== null) {
-            $this->handle($datatolog, $origin, $lvl);
+    }
+
+    public function Channel($chanName)
+    {
+        $this->checkChan($chanName);
+        if (!array_key_exists('obj', $this->channels[$chanName])) {
+            $this->channels[$chanName]['obj'] = new Channel($this, $chanName);
+        }
+        return $this->channels[$chanName]['obj'];
+    }
+
+    public function __call($level, $argm)
+    {
+        if (in_array($level, self::LVLS) && is_string(current($argm))) {
+            array_unshift($argm, $level);
+            return $this->log(...$argm);
         }
     }
 
-    protected function sendEmail($subject, $content, $sender, $recipient)
+    private function snapshot($context)
     {
-        /* @doc:
-           use your own email handler here; return true if success; false if error;
-           or
-           use ExoProject\Jacks\Trinkets;
-           return Trinkets::sendEmail($subject, $content, $sender, $recipient);
-        */
-        $this->selfLog[] = 'email handler not set';
+        if (is_null($context) || $context == '') {
+            return '';
+        }
+        $snap = trim(json_encode($context), "\n\r\t\v\0{[]}");
+        if (strlen($snap) < 24) {
+            return $snap;
+        }
+
+        return substr($snap, 0, 24);
+    }
+
+    public function log($level, $message, $context = [], $chanName = 'central')
+    {
+        $selfLog = [];
+
+        $level = $this->resolveLvl($level);
+        if ($level === false) {
+            $selfLog['invalid-lvl'] = $level;
+            $level = 'warning';
+        }
+
+        $this->checkChan($chanName);
+
+        $logindex = $level . '.' . $message . '.' . $this->snapshot($context);
+        if (array_key_exists($logindex, $this->channels[$chanName]['logs'])) {
+            return;
+        }
+
+        $content = $this->formatContent($level, $message, $context);
+
+        $this->channels[$chanName]['logs'][$logindex] = $content;
+
+        if ($this->shouldSave($this->channels[$chanName])) {
+
+            $writelog = $this->saveLogs($this->channels[$chanName]);
+            if (!$writelog) {
+                $selfLog['write-error'] = $chanName;
+            } else {
+                $this->channels[$chanName]['logs'] = [];
+            }
+        }
+
+        if (!empty($selfLog) && !$this->selfLogFail) {
+            if ($chanName == $this->chan) {
+                $this->selfLogFail = true;
+            } else {
+                $this->selfLog($selfLog);
+            }
+        }
+    }
+
+    public function readLogs($chanPath)
+    {
+        if (file_exists($chanPath)) {
+            return json_decode('{' . file_get_contents($path) . '}', true);
+        }
+        return [];
+    }
+
+    public function searchLogs($chanName, $level = null, $message = null, $maxSample = 0, $maxDate = null, $maxRslt = false)
+    {
+        $matches = $this->readLogs($this->chanPath($chanName));
+        if (empty($matches)) {
+            return false;
+        }
+
+        if (Jack\Help::isPostvInt($maxSample)) {
+            $matches = array_slice($matches, -$maxSample);
+        }
+
+        $count = count($matches);
+        if (!Jack\Help::isPostvInt($maxRslt)) {
+            $maxRslt = $count;
+        }
+
+        $level = $this->resolveLvl($level);
+        $maxDate = Jack\Time::dateObj($maxDate);
+
+        if (empty($level) && empty($message) && empty($maxDate)) {
+            return array_slice($matches, -$maxRslt);
+        }
+
+        $rslt = [];
+        $filterDate = !empty($maxDate);
+        $filterLevel = !empty($level);
+        $filterMessage = !empty($message);
+
+        foreach ($matches as $log) {
+            if ($filterDate && date_create($log['timestamp']) > $maxDate) {
+                break;
+            }
+            if (($filterLevel && $level != $log['level']) || ($filterMessage && $message != $log['message'])) {
+                continue;
+            }
+            $rslt[] = $log;
+            $maxRslt--;
+            if ($maxRslt === 0) {
+                break;
+            }
+        }
+        return array_slice($matches, -$maxRslt);
+    }
+
+    public function processBuffer()
+    {
+        $pile = [];
+        if (!empty($this->channels)) {
+            foreach ($this->channels as $chanName => $channel) {
+                if (!empty($channel['logs'])) {
+                    $writelog = $this->saveLogs($channel);
+                    if ($writelog) {
+                        $this->channels[$chanName] = [];
+                        continue;
+                    }
+
+                    $pile[] = '{ "' . $chanName . '": "' . implode(', ' . PHP_EOL, $channel['logs']) . '" }';
+                }
+            }
+        }
+        if (!empty($pile)) {
+            $pile = implode(', ' . PHP_EOL, $pile);
+            $emergPath = $this->chanPath('dump-' . Jack\Random::multLetters(12));
+            file_put_contents($emergPath, $pile);
+        }
+    }
+
+    private function selfLog($content)
+    {
+        if (!$this->selfLogFail) {
+            if (is_array($content)) {
+                $content = implode('; ', $content);
+            }
+            $content = ['report' => $content];
+            $this->log('error', 'logging-errors', $content, $this->chan);
+        }
+    }
+
+    private function checkChan($chanName)
+    {
+        if (!array_key_exists($chanName, $this->channels)) {
+            $this->registerChan($chanName);
+        }
+    }
+
+    private function registerChan($chanName)
+    {
+        $this->channels[$chanName] = [];
+        $this->channels[$chanName]['path'] = $this->chanPath($chanName);
+        $this->channels[$chanName]['logs'] = [];
+    }
+
+    private function chanPath($chanName)
+    {
+        return $this->logsDir . $chanName . '.txt';
+    }
+
+    private function resolveLvl($level)
+    {
+        if (in_array($level, self::LVLS)) {
+            return $level;
+        }
+        if (is_string($level)) {
+            $lowerlvl = strtolower($level);
+            if ($lowerlvl != $level && in_array($lowerlvl, self::LVLS)) {
+                return $lowerlvl;
+            }
+        }
+        if (array_key_exists((int) $level, self::LVLS)) {
+            return self::LVLS[$level];
+        }
         return false;
     }
 
-    protected function randomLogName()
+    private function formatContent($level, $message, $context = [])
     {
-        $randomChars = sha1(rand());
-        /* @doc: or
-        use ExoProject\Jacks\Token;
-        $randomChars = Token::sha40char();
-        */
+        $content = [
+            'timestamp' => Jack\Time::isoStamp(),
+            'level' => $level,
+            'message' => $message];
 
-        return $randomChars.'.json';
+        if (!empty($context)) {
+            $content['context'] = $context;
+        }
+        return Jack\File::prettyJsonEncode($content);
     }
-    
-    protected function isOutOfDate($origin, $target, $limit)
+
+    private function shouldSave($channel)
     {
-        $target = date_create($target);
-        $origin = date_create($origin);
-        $interval = $origin->diff($target);
-        $interval = $interval->format('%a');
-        /* @doc: or
-         use ExoProject\Jacks\Time;
-         $interval = Time::getInterval($origin, $target, '%a');
-         */
-       
-        if ((int)$interval > $limit) {
+        if (empty($this->ender) || count($channel['logs']) > $this->bufferLimit) {
             return true;
         }
         return false;
     }
 
-    private function getEmergConfigPath()
+    private function saveLogs($channel)
     {
-        return dirname(__DIR__).'\\'.$this->emergencyVal['configFile'];
-    }
-
-    private function getEmergLogPath()
-    {
-        $emergDir = dirname(__DIR__).'\\'.$this->emergencyVal['logDir'];
-        if (!is_dir($emergDir)) {
-            mkdir($emergDir);
-        } else {
-            $files=glob($emergDir.'\\*.json');
-            if (!empty($files)) {
-                return $files[0];
-            }
-        }
-        return $emergDir.'\\'.$this->randomLogName();
-    }
-
-    private function readConfigFile($configPath)
-    {
-        $read = json_decode(file_get_contents($configPath), true);
-        if (!empty($read) && is_array($read)) {
-            return $read;
-        }
-        return false;
-    }
-
-    private function getConfigContent($configPath)
-    {
-        $this->selfLog = [];
-
-        $config = [];
-        if (!empty($configPath)) {
-            if (!file_exists($configPath)) {
-                $this->selfLog[] = 'given config path is invalid';
-            } else {
-                $read = $this->readConfigFile($configPath);
-                if ($read !== false) {
-                    $config = $read;
-                } else {
-                    $this->selfLog[] = 'either empty or invalid config json';
-                }
-            }
-        }
-
-        if (empty($config)) {
-            $configPath = $this->getEmergConfigPath();
-            if (!file_exists($configPath)) {
-                $this->selfLog[] = 'default config path is invalid';
-            } else {
-                $read = $this->readConfigFile($configPath);
-                if ($read !== false) {
-                    $config = $read;
-                } else {
-                    $this->selfLog[] = 'either empty or invalid default config json';
-                }
-            }
-        }
-        return $config;
-    }
-
-    public function validateAndSetConfig($configPath = null)
-    {
-        $config = $this->getConfigContent($configPath);
-
-        foreach (['settings','profiles'] as $branch) {
-            if (!isset($config[$branch])) {
-                $config[$branch] = [];
-                $this->selfLog[] = "'$branch' are not set";
-            }
-        }
-
-        $settings = $config['settings'];
-        $profiles = $config['profiles'];
-
-        $validSenderEmail = false;
-        if (!empty($settings["senderEmail"])) {
-            if (filter_var($settings["senderEmail"], FILTER_VALIDATE_EMAIL)) {
-                $validSenderEmail = true;
-            } else {
-                $this->selfLog[] = $settings["senderEmail"].' is not a valid email';
-            }
-        }
-       
-        if (!isset($settings["dfltLvl"])) {
-            $settings["dfltLvl"] = $this->emergencyVal["dfltLvl"];
-            $this->selfLog[] = 'default lvl is not set';
-        }
-
-        $dfltLvl = $settings["dfltLvl"];
-        if (!isset($profiles[$dfltLvl])) {
-            $profiles[$dfltLvl] = [];
-            $this->selfLog[] = 'profile of default lvl is not set';
-        }
-
-        $this->emergPathInUse = false;
-        if (empty($profiles[$dfltLvl]['logPath']) ||
-           !is_writable(dirname($profiles[$dfltLvl]['logPath']))) {
-            $profiles[$dfltLvl]['logPath'] = $this->getEmergLogPath();
-            $this->emergPathInUse = true;
-            $this->selfLog[] = 'default lvl log path is either not set or invalid';
-        }
-
-        foreach ($profiles as $k => $profile) {
-            if ($k != $dfltLvl && (empty($profile['logPath'] || !is_writable(dirname($profile['logPath']))))) {
-                $profiles[$k]['logPath'] = $profiles[$dfltLvl]['logPath'];
-                $this->selfLog[] = "profile '$k': log path is either not set or invalid";
-            }
-            if (empty($profile['historyLimit']) || $profile['historyLimit'] < 1 || is_float($profile['historyLimit'])) {
-                $profiles[$k]['historyLimit'] = $this->emergencyVal['historyLimit'];
-                $this->selfLog[] = "profile '$k': history limit is either not set or invalid";
-            }
-
-            if (isset($profile['sendMail'])) {
-                if (empty($profile['sendMail']["isActive"])) {
-                    $profiles[$k]['sendMail'] = false;
-                } elseif (!$validSenderEmail || empty($profile['sendMail']['recipientEmail']) || !filter_var($profile['sendMail']['recipientEmail'], FILTER_VALIDATE_EMAIL)) {
-                    $profiles[$k]['sendMail'] = false;
-                    if ($validSenderEmail) {
-                        $this->selfLog[] = "profile '$k': recipient email is either not set or invalid";
-                    }
-                } elseif (empty($profile['sendMail']['emailSubject'])) {
-                    $profiles[$k]['sendMail']['emailSubject'] = $_SERVER['HTTP_HOST'].': '.$this->emergencyVal['subjectText'];
-                    $this->selfLog[] = "profile '$k': email subject is not set";
-                }
-            }
-            if (!empty($profile['exitAfterLog'])) {
-                if (empty($profile['exitAfterLog']["isActive"])) {
-                    $profiles[$k]['exitAfterLog'] = false;
-                } else {
-                    if (empty($profile['exitAfterLog']["fallbackText"])) {
-                        $profiles[$k]['exitAfterLog']["fallbackText"] = $this->emergencyVal['fallbackText'];
-                        $this->selfLog[] = "profile '$k': fallback text is not set";
-                    }
-                    if (!empty($profile['exitAfterLog']["pagePath"]) && !file_exists($profile['exitAfterLog']["pagePath"])) {
-                        $profiles[$k]['exitAfterLog']["pagePath"] = false;
-                        $this->selfLog[] = "profile '$k': exit page path is invalid";
-                    }
-                }
-            }
-        }
-        $this->profiles = $profiles;
-        $this->settings = $settings;
-        $this->handleSelfLog();
-    }
-
-    public function handle($datatolog, $origin = null, $lvl = null)
-    {
-        if (!isset($this->profiles) || !isset($this->settings)) {
-            $this->validateAndSetConfig();
-        }
-        if ($lvl === null) {
-            if (isset($datatolog['lvl'])) {
-                $lvl = $datatolog['lvl'];
-                unset($datatolog['lvl']);
-            } else {
-                $lvl = $this->settings["dfltLvl"];
-            }
-        }
-
-        if (empty($this->profiles[$lvl])) {
-            $this->selfLog[] = "specified level '".$lvl."' does not exist";
-            $lvl = $this->settings["dfltLvl"];
-        }
-
-        $lvldata = $this->profiles[$lvl];
-
-        if (empty($origin)) {
-            if (isset($datatolog['origin'])) {
-                $origin = $datatolog['origin'];
-                unset($datatolog['origin']);
-            } else {
-                $origin = debug_backtrace()[0]['file'];
-            }
-        }
-
-        if (isset($datatolog['data'])) {
-            $datatolog = $datatolog['data'];
-        }
-
-        $content = ['origin' => $origin, 'data' => $datatolog];
-
-        if (!empty($lvldata["logPath"])) {
-            $writelog = $this->recordLog($lvldata["logPath"], $content, $lvldata["historyLimit"]);
-            if ($writelog === false) {
-                $this->selfLog[] = 'an error occured while trying to record log';
-                $content['HoustonLog'] = $this->selfLog;
-                $this->profiles[$lvl]["logPath"] = false;
-            }
-        }
-  
-        if (!empty($lvldata["sendMail"])) {
-            $sendemail = $this->sendEmail($lvldata["sendMail"]["subjectText"], json_encode($content, JSON_PRETTY_PRINT), $this->settings["senderEmail"], $lvldata["sendMail"]["recipientEmail"]);
-            if ($sendemail === false) {
-                $this->profiles[$lvl]["sendMail"] = false;
-                $this->selfLog[] = "sending email notification failed";
-            }
-        }
-        $this->handleSelfLog();
-
-        if (!empty($lvldata["exitAfterLog"])) {
-            $exitContent = $this->getExitContent($lvldata["exitAfterLog"]);
-            $this->outputExitContent($exitContent);
-        }
-    }
-
-    private function cleanSelfLog()
-    {
-        $this->selfLog = [];
-        return true;
-    }
-   
-    protected function handleSelfLog()
-    {
-        if (empty($this->selfLog)) {
+        $logs = implode(', ' . PHP_EOL, $channel['logs']);
+        $write = Jack\File::writeAppend($logs, $channel['path']);
+        if ($write) {
             return true;
         }
-        if (!isset($this->profiles) || !isset($this->settings)) {
-            return false;
-        }
-        $selfcontent = ['data'=>$this->selfLog, 'origin'=>['Houston SelfLog',__FILE__]];
-   
-        if (!empty($this->profiles['1']) && !empty($this->profiles[1]["logPath"])) {
-            $record = $this->recordLog($this->profiles[1]["logPath"], $selfcontent, $this->profiles[1]["historyLimit"]);
-            if (!empty($record)) {
-                return $this->cleanSelfLog();
-            }
-        }
-        if ($this->settings["dfltLvl"] !== 1) {
-            $record = $this->recordLog($this->profiles[$this->settings["dfltLvl"]]["logPath"], $selfcontent, $this->profiles[$this->settings["dfltLvl"]]["historyLimit"]);
-            if (!empty($record)) {
-                return $this->cleanSelfLog();
-            }
-        }
-        if ($this->emergPathInUse !== true) {
-            $record = $this->recordLog($this->getEmergLogPath(), $selfcontent, $this->emergencyVal['historyLimit']);
-            if (!empty($record)) {
-                return $this->cleanSelfLog();
-            }
-        }
-        $this->emergPathInUse = true;
-        return false;
-    }
-    
-    protected function recordLog($logpath, $content, $historyLimit)
-    {
-        if (!is_writable(dirname($logpath))) {
-            return false;
-        }
-        $content['timestamp'] = date($this->dateFormat);
-        $log = [];
-        if (file_exists($logpath)) {
-            $decodlog = json_decode(file_get_contents($logpath), true);
-            if (!empty($decodlog)) {
-                foreach ($decodlog as $k => $logentry) {
-                    if ($this->isOutOfDate($logentry['timestamp'], $content['timestamp'], $historyLimit)) {
-                        unset($decodlog[$k]);
-                    } else {
-                        break;
-                    }
-                }
-                $log = $decodlog;
-            }
-        }
-        
-        $log[] = $content;
-        return file_put_contents($logpath, json_encode($log, JSON_PRETTY_PRINT), LOCK_EX);
+        usleep(200000); #0.2s
+        return Jack\File::writeAppend($logs, $channel['path']);
     }
 
-    private function getExitContent($exitData)
-    {
-        if (!empty($exitData["pagePath"])) {
-            ob_start();
-            include($exitData["pagePath"]);
-            $exitContent = ob_get_clean();
-            if (!empty($exitContent)) {
-                return $exitContent;
-            }
-        }
-        return $exitData["fallbackText"];
-    }
-
-    private function outputExitContent($exitContent)
-    {
-        exit($exitContent);
-    }
 }
